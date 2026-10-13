@@ -1,0 +1,142 @@
+---
+- name: Настройка Nginx reverse proxy
+  hosts: proxy
+  become: true
+
+  # 1. Установка Nginx и Certbot.
+  # 2. UFW: открытие портов 80 (HTTP, нужен Let's Encrypt) и 443 (HTTPS).
+  #    Базовые правила файрвола (запрет входящих, SSH) уже заданы в baseline.yml.
+  # 3. Проверка, есть ли сертификат (с учётом битых симлинков).
+  # 4. Если сертификата нет: остановка Nginx (освобождение порта 80) → Certbot
+  #    в режиме Standalone → запуск Nginx при любом исходе (block / always).
+  # 5. Хуки автопродления: перед продлением Nginx останавливается, после запускается
+  #    (Certbot в режиме Standalone тоже занимает порт 80).
+  # 6. Удаление дефолтного сайта, применение шаблона (HTTPS, TLS, HSTS, proxy_pass
+  #    на Apache) и включение его симлинком.
+  # 7. Проверка конфигурации (nginx -t), запуск и автозапуск Nginx.
+  # Это Standalone-сценарий: при первом выпуске сертификата сайт недоступен
+  # около полминуты (Nginx остановлен).
+
+  tasks:
+    - name: Установка Nginx и обновление кэша пакетов
+      ansible.builtin.apt:
+        name: nginx
+        state: present
+        lock_timeout: 300
+        update_cache: true
+
+    - name: Установка Certbot и Nginx plugin
+      ansible.builtin.apt:
+        name:
+          - certbot
+          - python3-certbot-nginx
+        state: present
+        lock_timeout: 300
+
+    - name: Разрешить HTTP
+      community.general.ufw:
+        rule: allow
+        port: "80"
+        proto: tcp
+
+    - name: Разрешить HTTPS
+      community.general.ufw:
+        rule: allow
+        port: "443"
+        proto: tcp     
+
+    - name: Проверка fullchain сертификата
+      ansible.builtin.stat:
+        path: "/etc/letsencrypt/live/{{ fqdn_domain }}/fullchain.pem"
+        follow: true
+      register: cert_fullchain
+
+    - name: Проверка приватного ключа сертификата
+      ansible.builtin.stat:
+        path: "/etc/letsencrypt/live/{{ fqdn_domain }}/privkey.pem"
+        follow: true
+      register: cert_privkey
+
+    - name: Выпуск SSL-сертификата (если его ещё нет)
+      when: not cert_fullchain.stat.exists or not cert_privkey.stat.exists
+      block:
+        - name: Временная остановка Nginx для освобождения порта 80
+          ansible.builtin.service:
+            name: nginx
+            state: stopped
+
+        - name: Получение SSL-сертификата в режиме Standalone
+          ansible.builtin.command: >
+            certbot certonly
+            --standalone
+            --non-interactive
+            --agree-tos
+            --email "{{ ssl_email }}"
+            --no-eff-email
+            --cert-name "{{ fqdn_domain }}"
+            -d "{{ fqdn_domain }}"
+            -d "www.{{ fqdn_domain }}"
+      always:
+        - name: Запуск Nginx при любом исходе
+          ansible.builtin.service:
+            name: nginx
+            state: started
+
+    - name: Каталоги для хуков продления сертификата
+      ansible.builtin.file:
+        path: "/etc/letsencrypt/renewal-hooks/{{ item }}"
+        state: directory
+        mode: '0755'
+      loop:
+        - pre
+        - post
+
+    - name: Хук перед продлением (остановка Nginx)
+      ansible.builtin.copy:
+        dest: /etc/letsencrypt/renewal-hooks/pre/stop-nginx.sh
+        mode: '0755'
+        content: |
+          #!/bin/sh
+          systemctl stop nginx
+
+    - name: Хук после продления (запуск Nginx)
+      ansible.builtin.copy:
+        dest: /etc/letsencrypt/renewal-hooks/post/start-nginx.sh
+        mode: '0755'
+        content: |
+          #!/bin/sh
+          systemctl start nginx
+
+    - name: Удаление дефолтного конфига из sites-enabled
+      ansible.builtin.file:
+        path: /etc/nginx/sites-enabled/default
+        state: absent
+
+    - name: Создание конфигурации сайта из шаблона
+      ansible.builtin.template:
+        src: proxy_sites_conf.j2
+        dest: "/etc/nginx/sites-available/{{ fqdn_domain }}"
+        mode: '0644'
+      notify: Перечитываение конфигурации Nginx
+
+    - name: Создание символической ссылки для конфига сайта
+      ansible.builtin.file:
+        src: "/etc/nginx/sites-available/{{ fqdn_domain }}"
+        dest: "/etc/nginx/sites-enabled/{{ fqdn_domain }}"
+        state: link
+
+    - name: Проверка конфигурации Nginx
+      ansible.builtin.command: nginx -t
+      changed_when: false
+
+    - name: Финальный запуск и включение Nginx
+      ansible.builtin.service:
+        name: nginx
+        state: started
+        enabled: true
+
+  handlers:
+    - name: Перечитываение конфигурации Nginx
+      ansible.builtin.service:
+        name: nginx
+        state: reloaded

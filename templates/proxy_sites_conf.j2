@@ -1,0 +1,46 @@
+# 1: Редирект с HTTP на HTTPS
+server {
+    listen 80;
+    server_name {{ fqdn_domain }} www.{{ fqdn_domain }};
+
+    if ($host = www.{{ fqdn_domain }}) {
+        return 301 https://$host$request_uri;
+    }
+
+    if ($host = {{ fqdn_domain }}) {
+        return 301 https://$host$request_uri;
+    }
+
+    return 404; # Если запрос пришел на чужой домен
+}
+
+# 2: Основной рабочий сервер HTTPS
+server {
+    listen 443 ssl;
+    server_name {{ fqdn_domain }} www.{{ fqdn_domain }};
+    client_max_body_size 64m; # Чтобы загружать в WordPress файлы больше 1МБ
+
+    # Пути к сертификатам Let's Encrypt
+    ssl_certificate /etc/letsencrypt/live/{{ fqdn_domain }}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/{{ fqdn_domain }}/privkey.pem;
+
+    # TLS: безопасные версии протокола и кэш сессий (ускоряет повторные подключения)
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_session_timeout 1d;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_tickets off;
+
+    # HSTS: браузер будет заходить только по HTTPS
+    add_header Strict-Transport-Security "max-age=86400" always;
+
+    # Проксирование всех запросов на бэкенд Apache
+    location / {
+        proxy_pass http://{{ web_ip_address }}:{{ web_port_for_proxy }};
+            
+        # Передаем реальные заголовки, чтобы Apache и WordPress работали корректно
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}

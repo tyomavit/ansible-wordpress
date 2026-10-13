@@ -1,0 +1,68 @@
+---
+- name: Базовая настройка свежей Ubuntu VPS / Baseline a fresh Ubuntu VPS
+  hosts: vps
+  become: true
+
+  # 1. Установка и запуск базового софта безопасности (fail2ban, unattended-upgrades).
+  # 2. Отключение парольного входа по SSH (hardening) и включение файрвола UFW.
+
+  vars:
+    baseline_packages:
+      - fail2ban
+      - unattended-upgrades
+      - ufw
+    baseline_services:
+      - fail2ban
+      - unattended-upgrades
+
+  tasks:
+    - name: Установка базовых пакетов / Install baseline packages
+      ansible.builtin.apt:
+        name: "{{ baseline_packages }}"
+        state: present
+        update_cache: true
+        lock_timeout: 300
+
+    - name: Запуск и автозапуск базовых служб / Enable and start baseline services
+      ansible.builtin.service:
+        name: "{{ item }}"
+        state: started
+        enabled: true
+      loop: "{{ baseline_services }}"
+
+    - name: Харденинг SSH через drop-in конфиг / Harden sshd with a drop-in
+      ansible.builtin.copy:
+        dest: /etc/ssh/sshd_config.d/00-hardening.conf
+        content: |
+          PasswordAuthentication no
+          KbdInteractiveAuthentication no
+          PermitRootLogin prohibit-password
+          X11Forwarding no
+        mode: "0644"
+        validate: /usr/sbin/sshd -t -f %s
+      notify: Перезапуск SSH
+
+    - name: Разрешение SSH в UFW
+      community.general.ufw:
+        rule: allow
+        name: OpenSSH
+
+    - name: UFW-запрет входящих по умолчанию
+      community.general.ufw:
+        direction: incoming
+        default: deny
+
+    - name: UFW-разрешение исходящих по умолчанию
+      community.general.ufw:
+        direction: outgoing
+        default: allow
+
+    - name: Включение UFW
+      community.general.ufw:
+        state: enabled
+
+  handlers:
+    - name: Перезапуск SSH
+      ansible.builtin.service:
+        name: ssh
+        state: restarted

@@ -1,0 +1,17 @@
+<VirtualHost *:{{ web_port_for_proxy }}>
+    ServerName {{ fqdn_domain }}
+    ServerAlias www.{{ fqdn_domain }}
+        
+    DocumentRoot /var/www/{{ domain_name }}
+
+    <Directory /var/www/{{ domain_name }}>
+        Options FollowSymLinks
+        AllowOverride All
+        Require all granted
+    </Directory>
+
+    SetEnvIf X-Forwarded-Proto https HTTPS=on
+
+    ErrorLog ${APACHE_LOG_DIR}/{{ domain_name }}-error.log
+    CustomLog ${APACHE_LOG_DIR}/{{ domain_name }}-access.log combined
+</VirtualHost>

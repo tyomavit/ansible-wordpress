@@ -1,0 +1,108 @@
+---
+- name: Установка и настройка MySQL
+  hosts: db
+  become: true
+
+  # 1. Установка MySQL и PyMySQL (библиотека, через которую модули Ansible подключаются к MySQL).
+  # 2. Запуск MySQL и включение автозапуска.
+  # 3. Конфиг MySQL отдельным drop-in файлом (mysqld_custom.cnf): слушаем все интерфейсы,
+  #    X Protocol только локально. Применяется сразу (flush_handlers).
+  # 4. Создание /root/.my.cnf: Ansible заходит в MySQL как root через сокет, без пароля.
+  # 5. Удаление анонимных пользователей и тестовой базы данных.
+  # 6. Создание базы данных и двух пользователей (локального и удалённого для WordPress).
+  #    Плагин caching_sha2_password: пароль задаётся через plugin_auth_string + salt.
+  # 7. UFW: порт 3306 открыт только для IP сервера Web.
+  #    Базовые правила файрвола (запрет входящих, SSH) заданы в baseline.yml.
+
+  tasks:
+    - name: Установка MySQL, Python и обновление кэша пакетов
+      ansible.builtin.apt:
+        name:
+          - mysql-server
+          - mysql-client
+          - python3-pymysql
+        state: present
+        update_cache: yes
+        lock_timeout: 300
+
+    - name: Запуск MySQL
+      ansible.builtin.service:
+        name: mysql
+        state: started
+        enabled: yes
+
+    - name: Применение конфигурации MySQL (drop-in)
+      ansible.builtin.copy:
+        dest: /etc/mysql/mysql.conf.d/mysqld_custom.cnf
+        mode: '0644'
+        content: |
+          [mysqld]
+          bind-address = 0.0.0.0
+          mysqlx-bind-address = 127.0.0.1
+      notify: Перезагрузка MySQL
+
+    - name: Применение изменений конфигурации, если они были
+      ansible.builtin.meta: flush_handlers
+
+    - name: Создание файла настроек .my.cnf для автоматической авторизации Ansible
+    # Чтобы не использовать арг. login_unix_socket при каждом вызове ansible.mysql.mysql_user/db
+      ansible.builtin.copy:
+        dest: /root/.my.cnf
+        mode: '0600' # Права доступа «только для root» из соображений безопасности
+        content: |
+          [client]
+          user=root
+          socket=/var/run/mysqld/mysqld.sock
+
+    - name: Удаление анонимных пользователей MySQL
+      ansible.mysql.mysql_user:
+        name: ""
+        host_all: yes
+        state: absent
+
+    - name: Удаление тестовой базы данных
+      ansible.mysql.mysql_db:
+        name: test
+        state: absent
+
+    - name: Создание базы MySQL
+      ansible.mysql.mysql_db:
+        name: "{{ db_name }}"
+        encoding: utf8mb4
+        collation: utf8mb4_unicode_ci
+        state: present
+
+    - name: Создание локального пользователя MySQL
+      ansible.mysql.mysql_user:
+        name: "{{ db_user }}"
+        plugin: caching_sha2_password # my_native_password больше не поддерживается
+        plugin_auth_string: "{{ db_user_password }}"
+        salt: "{{ db_password_salt }}"
+        priv: "{{ db_name }}.*:ALL"
+        host: "{{ db_host }}"
+        state: present
+      no_log: true
+
+    - name: Создание удаленного пользователя MySQL
+      ansible.mysql.mysql_user:
+        name: "{{ db_remote_user }}"
+        plugin: caching_sha2_password # my_native_password больше не поддерживается
+        plugin_auth_string: "{{ db_remote_user_password }}"
+        salt: "{{ db_password_salt }}"
+        priv: "{{ db_name }}.*:ALL"
+        host: "{{ web_ip_address }}"
+        state: present
+      no_log: true
+      
+    - name: Разрешить доступ для Web (port 3306/tcp)
+      community.general.ufw:
+        rule: allow
+        from: "{{ web_ip_address }}"
+        port: "3306"
+        proto: tcp        
+
+  handlers:
+    - name: Перезагрузка MySQL
+      ansible.builtin.service:
+        name: mysql
+        state: restarted

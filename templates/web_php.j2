@@ -1,0 +1,41 @@
+<?php
+
+// PHP-код для настройки Nginx Reverse Proxe (блок должен быть в начале)
+if (
+    isset($_SERVER['HTTP_X_FORWARDED_PROTO']) &&
+    strpos($_SERVER['HTTP_X_FORWARDED_PROTO'], 'https') !== false
+) {
+    $_SERVER['HTTPS'] = 'on';
+    $_SERVER['SERVER_PORT'] = '443';
+}
+
+// Настройка базы данных
+define( 'DB_NAME', '{{ db_name }}' );
+define( 'DB_USER', '{{ db_remote_user }}' );
+define( 'DB_PASSWORD', '{{ db_remote_user_password }}' );
+define( 'DB_HOST', '{{ db_ip_address }}' ); // IP VPS DB
+define( 'DB_CHARSET', 'utf8mb4' );
+define( 'DB_COLLATE', '' );
+
+// Принудительно HTTPS для админки и авторизации
+define('FORCE_SSL_ADMIN', true);
+
+// Фиксируем домен (чтобы настройки не переопределялись)
+define('WP_HOME', 'https://{{ fqdn_domain }}');
+define('WP_SITEURL', 'https://{{ fqdn_domain }}');
+
+// Уникальные ключи и соли (Salt) шифрования
+{% for name, value in wp_salts.items() %}
+define( '{{ name }}', '{{ value }}' );
+{% endfor %}
+
+// Системные настройки и запуск
+$table_prefix = 'wp_';
+define( 'WP_DEBUG', false );
+
+if ( ! defined( 'ABSPATH' ) ) {
+define( 'ABSPATH', __DIR__ . '/' );
+}
+
+// Инициализация настроек WordPress и запуск ядра
+require_once ABSPATH . 'wp-settings.php';

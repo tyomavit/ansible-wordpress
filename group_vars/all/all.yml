@@ -1,0 +1,28 @@
+---
+#1 Общие переменные
+fqdn_domain: "artemdevops.ru" # FQDN - Fully Qualified Domain Name
+domain_name: "artemdevops" # Для директорий и конфигов (/etc/nginx|apache/sites-available/)
+web_ip_address: "{{ vault_web_ip_address }}" # IP VPS WEB
+#bind_address | mysqlx_bind_address > конфиг /etc/mysql/mysql.conf.d/mysqld.cnf | IP VPS DB
+db_ip_address: "{{ vault_db_ip_address }}" # IP VPS DB
+
+#2 Переменные базы данных MySQL
+db_name: "artemdevops_db"
+db_password_salt: "{{ vault_db_password_salt }}"
+# Локальный пользователь
+db_host: "localhost"
+db_user: "artemdevops_user"
+db_user_password: "{{ vault_db_user_password }}"
+# Удаленный пользователь для wp-config.php на Apache
+db_remote_user: "dediuser"
+db_remote_user_password: "{{ vault_db_remote_user_password }}"
+
+#3 Переменные для web-сервера Apache
+proxy_ip_address: "{{ vault_proxy_ip_address }}" # IP VPS reverse proxy Nginx
+
+#4 Переменные для reverse proxy Nginx
+web_port_for_proxy: "8080" # Порт, на котором Web слушает Proxy
+ssl_email: "{{ vault_ssl_email }}"
+
+#5 Переменные WordPress (ключи и соли)
+wp_salts: "{{ vault_wp_salts }}"
