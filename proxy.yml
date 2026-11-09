@@ -117,7 +117,7 @@
         src: proxy_sites_conf.j2
         dest: "/etc/nginx/sites-available/{{ fqdn_domain }}"
         mode: '0644'
-      notify: Перечитываение конфигурации Nginx
+      notify: Перечитывание конфигурации Nginx
 
     - name: Создание символической ссылки для конфига сайта
       ansible.builtin.file:
