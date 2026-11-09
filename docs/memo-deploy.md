@@ -104,7 +104,7 @@ ansible-vault view group_vars/all/vault.yml
 EDITOR=nano ansible-vault edit group_vars/all/vault.yml
 ```
 
-В vault лежат IP серверов (`vault_proxy_ip_address`, `vault_web_ip_address`, `vault_db_ip_address`). Если серверы новые, **обновить их здесь**. Остальные секреты (пароли, соли, ключи WordPress) не трогать, если разворачивается тот же сайт заново. Если домен новый, поменяйть `fqdn_domain` и `domain_name` в `group_vars/all/all.yml`, а ключи WordPress сгенерировать новые.
+В vault лежат IP серверов (`vault_proxy_ip_address`, `vault_web_ip_address`, `vault_db_ip_address`). Если серверы новые, **обновить их здесь**. Остальные секреты (пароли, соли, ключи WordPress) не трогать, если разворачивается тот же сайт заново. Если домен новый, поменять `fqdn_domain` и `domain_name` в `group_vars/all/all.yml`, а ключи WordPress сгенерировать новые.
 
 ## Шаг 8. Проверки перед запуском
 
